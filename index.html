@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub Arcade Shooter</title>
+    <title>Rivals Arena Shooter</title>
     <style>
         body {
             margin: 0;
-            background-color: #111;
-            color: white;
-            font-family: sans-serif;
+            background-color: #0d0d11;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -17,151 +17,263 @@
             height: 100vh;
             overflow: hidden;
         }
+        #uiContainer {
+            width: 800px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
         canvas {
-            background-color: #1a1a1a;
-            border: 4px solid #333;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            background-color: #16161e;
+            border: 3px solid #ff4757;
+            box-shadow: 0 0 30px rgba(255, 71, 87, 0.2);
             cursor: crosshair;
         }
-        #scoreBoard {
-            font-size: 24px;
-            margin-bottom: 10px;
+        .controls-hint {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #a4b0be;
         }
+        .highlight { color: #ff4757; }
     </style>
 </head>
 <body>
 
-    <div id="scoreBoard">Score: <span id="score">0</span></div>
+    <div id="uiContainer">
+        <div>Score: <span id="score" class="highlight">0</span></div>
+        <div>HP: <span id="health" style="color: #2ed573;">100</span></div>
+    </div>
+    
     <canvas id="gameCanvas" width="800" height="600"></canvas>
+    
+    <div class="controls-hint">
+        Move: <span class="highlight">W A S D</span> | Slide Boost: <span class="highlight">SHIFT</span> | Aim & Shoot: <span class="highlight">MOUSE</span>
+    </div>
 
 <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const scoreElement = document.getElementById('score');
+    const healthElement = document.getElementById('health');
 
+    // Game Variables
     let score = 0;
     let gameOver = false;
+    const mapSize = 2000; // Large scrolling battlefield
 
+    // Player Configuration (Stays locked in the screen viewport center)
     const player = {
-        x: canvas.width / 2,
-        y: canvas.height / 2,
-        radius: 15,
-        color: '#3498db'
+        worldX: mapSize / 2,
+        worldY: mapSize / 2,
+        screenX: canvas.width / 2,
+        screenY: canvas.height / 2,
+        radius: 16,
+        baseSpeed: 4,
+        speed: 4,
+        health: 100,
+        isSliding: false,
+        slideTimer: 0,
+        slideDir: { x: 0, y: 0 }
     };
 
+    // Arrays
     const bullets = [];
     const enemies = [];
-    const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+    const damageNumbers = [];
+    const keys = {};
+    const mouse = { x: 0, y: 0 };
 
-    window.addEventListener('mousemove', (event) => {
+    // Event Listeners
+    window.addEventListener('keydown', (e) => {
+        keys[e.key.toLowerCase()] = true;
+        
+        // Trigger Rivals-style Slide Mechanics
+        if (e.key === 'Shift' && !player.isSliding) {
+            let moveX = 0;
+            let moveY = 0;
+            if (keys['w']) moveY = -1;
+            if (keys['s']) moveY = 1;
+            if (keys['a']) moveX = -1;
+            if (keys['d']) moveX = 1;
+
+            if (moveX !== 0 || moveY !== 0) {
+                player.isSliding = true;
+                player.slideTimer = 15; // length of slide frames
+                const length = Math.hypot(moveX, moveY);
+                player.slideDir = { x: moveX / length, y: moveY / length };
+            }
+        }
+    });
+    window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+    
+    canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
-        mouse.x = event.clientX - rect.left;
-        mouse.y = event.clientY - rect.top;
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
     });
 
-    window.addEventListener('click', () => {
+    // Rapid Fire Automatic Shooting (Hold down to fire)
+    let isShooting = false;
+    let fireRateTimer = 0;
+
+    canvas.addEventListener('mousedown', () => isShooting = true);
+    window.addEventListener('mouseup', () => isShooting = false);
+
+    function fireBullet() {
         if (gameOver) return;
-        const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+        // Vector pointing directly from center player screen coordinates to crosshair
+        const angle = Math.atan2(mouse.y - player.screenY, mouse.x - player.screenX);
         bullets.push({
-            x: player.x,
-            y: player.y,
-            radius: 5,
-            color: '#f1c40f',
-            velocity: {
-                x: Math.cos(angle) * 7,
-                y: Math.sin(angle) * 7
-            }
-        });
-    });
-
-    setInterval(() => {
-        if (gameOver) return;
-        const radius = Math.random() * (25 - 10) + 10;
-        let x, y;
-
-        if (Math.random() < 0.5) {
-            x = Math.random() < 0.5 ? 0 - radius : canvas.width + radius;
-            y = Math.random() * canvas.height;
-        } else {
-            x = Math.random() * canvas.width;
-            y = Math.random() < 0.5 ? 0 - radius : canvas.height + radius;
-        }
-
-        const angle = Math.atan2(player.y - y, player.x - x);
-        enemies.push({
-            x: x,
-            y: y,
-            radius: radius,
-            color: '#e74c3c',
-            velocity: {
-                x: Math.cos(angle) * 2,
-                y: Math.sin(angle) * 2
-            }
-        });
-    }, 1000);
-
-    function animate() {
-        requestAnimationFrame(animate);
-        ctx.fillStyle = 'rgba(26, 26, 26, 0.3)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        if (gameOver) {
-            ctx.fillStyle = 'white';
-            ctx.font = '40px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2);
-            return;
-        }
-
-        ctx.beginPath();
-        ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-        ctx.fillStyle = player.color;
-        ctx.fill();
-
-        bullets.forEach((bullet, bIndex) => {
-            bullet.x += bullet.velocity.x;
-            bullet.y += bullet.velocity.y;
-
-            ctx.beginPath();
-            ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
-            ctx.fillStyle = bullet.color;
-            ctx.fill();
-
-            if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
-                setTimeout(() => bullets.splice(bIndex, 1), 0);
-            }
-        });
-
-        enemies.forEach((enemy, eIndex) => {
-            enemy.x += enemy.velocity.x;
-            enemy.y += enemy.velocity.y;
-
-            ctx.beginPath();
-            ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
-            ctx.fillStyle = enemy.color;
-            ctx.fill();
-
-            const distToPlayer = Math.hypot(player.x - enemy.x, player.y - enemy.y);
-            if (distToPlayer - enemy.radius - player.radius < 1) {
-                gameOver = true;
-            }
-
-            bullets.forEach((bullet, bIndex) => {
-                const distToBullet = Math.hypot(bullet.x - enemy.x, bullet.y - enemy.y);
-                if (distToBullet - enemy.radius - bullet.radius < 1) {
-                    setTimeout(() => {
-                        enemies.splice(eIndex, 1);
-                        bullets.splice(bIndex, 1);
-                        score += 10;
-                        scoreElement.innerText = score;
-                    }, 0);
-                }
-            });
+            worldX: player.worldX,
+            worldY: player.worldY,
+            velocity: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
+            radius: 4
         });
     }
 
-    animate();
-</script>
-</body>
-</html>
+    // Spawn Waves of Rivals Bots
+    setInterval(() => {
+        if (gameOver) return;
+        // Spawn randomly around the massive world map border grid limits
+        const spawnX = Math.random() * mapSize;
+        const spawnY = Math.random() * mapSize;
+        
+        // Don't spawn bots directly on top of screen
+        if (Math.hypot(spawnX - player.worldX, spawnY - player.worldY) > 400) {
+            enemies.push({
+                worldX: spawnX,
+                worldY: spawnY,
+                radius: 14,
+                speed: 2.5,
+                health: 30
+            });
+        }
+    }, 800);
+
+    // Main Game Engine Update Execution Loop
+    function update() {
+        if (gameOver) return;
+
+        // 1. Handle Smooth Movement & Sliding physics engine calculations
+        if (player.isSliding) {
+            player.worldX += player.slideDir.x * 9;
+            player.worldY += player.slideDir.y * 9;
+            player.slideTimer--;
+            if (player.slideTimer <= 0) player.isSliding = false;
+        } else {
+            let mx = 0;
+            let my = 0;
+            if (keys['w']) my -= 1;
+            if (keys['s']) my += 1;
+            if (keys['a']) mx -= 1;
+            if (keys['d']) mx += 1;
+
+            if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; } // Prevent diagonal speed exploits
+            player.worldX += mx * player.baseSpeed;
+            player.worldY += my * player.baseSpeed;
+        }
+
+        // Clamp inside total arena walls 
+        player.worldX = Math.max(player.radius, Math.min(mapSize - player.radius, player.worldX));
+        player.worldY = Math.max(player.radius, Math.min(mapSize - player.radius, player.worldY));
+
+        // 2. Automated Trigger Tracking 
+        if (isShooting) {
+            if (fireRateTimer <= 0) {
+                fireBullet();
+                fireRateTimer = 8; // Cooldown cycles between rounds
+            }
+        }
+        if (fireRateTimer > 0) fireRateTimer--;
+
+        // 3. Bullet Physics Collision Tracking logic loop
+        bullets.forEach((bullet, bIdx) => {
+            bullet.worldX += bullet.velocity.x;
+            bullet.worldY += bullet.velocity.y;
+
+            // Remove long distance stray ammunition lines
+            if (bullet.worldX < 0 || bullet.worldX > mapSize || bullet.worldY < 0 || bullet.worldY > mapSize) {
+                bullets.splice(bIdx, 1);
+            }
+        });
+
+        // 4. Enemy Track Mechanics AI Update Loop 
+        enemies.forEach((enemy, eIdx) => {
+            const angle = Math.atan2(player.worldY - enemy.worldY, player.worldX - enemy.worldX);
+            enemy.worldX += Math.cos(angle) * enemy.speed;
+            enemy.worldY += Math.sin(angle) * enemy.speed;
+
+            // Damage player checking metric frame counts
+            const distToPlayer = Math.hypot(player.worldX - enemy.worldX, player.worldY - enemy.worldY);
+            if (distToPlayer - player.radius - enemy.radius < 1) {
+                player.health -= 0.5;
+                healthElement.innerText = Math.max(0, Math.floor(player.health));
+                if (player.health <= 0) gameOver = true;
+            }
+
+            // Hitscan bullet collision verification mapping arrays
+            bullets.forEach((bullet, bIdx) => {
+                const distToBullet = Math.hypot(bullet.worldX - enemy.worldX, bullet.worldY - enemy.worldY);
+                if (distToBullet - enemy.radius - bullet.radius < 1) {
+                    bullets.splice(bIdx, 1);
+                    enemy.health -= 10;
+                    
+                    // Generate floating hit tracking popups
+                    damageNumbers.push({
+                        text: "10",
+                        x: enemy.worldX - player.worldX + player.screenX,
+                        y: enemy.worldY - player.worldY + player.screenY - 20,
+                        alpha: 1.0
+                    });
+
+                    if (enemy.health <= 0) {
+                        enemies.splice(eIdx, 1);
+                        score += 100;
+                        scoreElement.innerText = score;
+                    }
+                }
+            });
+        });
+
+        // Damage display animations tickers
+        damageNumbers.forEach((num, idx) => {
+            num.y -= 1;
+            num.alpha -= 0.04;
+            if (num.alpha <= 0) damageNumbers.splice(idx, 1);
+        });
+    }
+
+    function render() {
+        // Core Viewport Render Drawing Clearing
+        ctx.fillStyle = '#16161e';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Grid Translation Alignment calculations (Draws Tactical Arena Ground lines)
+        const offsetX = player.screenX - player.worldX;
+        const offsetY = player.screenY - player.worldY;
+
+        ctx.strokeStyle = '#232330';
+        ctx.lineWidth = 2;
+        const gridSize = 100;
+        for (let x = 0; x < mapSize; x += gridSize) {
+            ctx.beginPath(); ctx.moveTo(x + offsetX, offsetY); ctx.lineTo(x + offsetX, mapSize + offsetY); ctx.stroke();
+        }
+        for (let y = 0; y < mapSize; y += gridSize) {
+            ctx.beginPath(); ctx.moveTo(offsetX, y + offsetY); ctx.lineTo(mapSize + offsetX, y + offsetY); ctx.stroke();
+        }
+
+        // Draw Map Boundary Fences
+        ctx.strokeStyle = '#ff4757';
+        ctx.lineWidth = 5;
+        ctx.strokeRect(offsetX, offsetY, mapSize, mapSize);
+
+        // Render Enemies mapped directly onto local relative world spaces
+        enemies.forEach(enemy => {
+            ctx.beginPath();
+            ctx.arc(enemy.worldX + offsetX, enemy.worldY + offsetY, enemy.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff4757';
 
